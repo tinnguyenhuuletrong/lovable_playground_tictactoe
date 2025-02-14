@@ -1,8 +1,11 @@
-
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { Circle, X } from 'lucide-react';
+import { nanoid } from 'nanoid';
+import * as db from '../utils/database';
+import { calculateEloRating } from '../utils/elo';
+import type { Game, Player } from '../types/game';
 
 type Player = 'X' | 'O';
 type CellValue = Player | null;
@@ -15,13 +18,34 @@ const WINNING_COMBINATIONS = [
 ];
 
 const TicTacToeBoard = () => {
-  const [board, setBoard] = useState<GameState>(Array(9).fill(null));
+  const [board, setBoard] = useState<(Player | null)[]>(Array(9).fill(null));
   const [currentPlayer, setCurrentPlayer] = useState<Player>('X');
   const [winner, setWinner] = useState<Player | 'DRAW' | null>(null);
   const [scores, setScores] = useState({ X: 0, O: 0 });
   const [winningCombination, setWinningCombination] = useState<number[] | null>(null);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  const checkWinner = (boardState: GameState): [Player | 'DRAW' | null, number[] | null] => {
+  useEffect(() => {
+    const userId = localStorage.getItem('userId') || nanoid();
+    const username = localStorage.getItem('username') || `Player${Math.floor(Math.random() * 1000)}`;
+    
+    try {
+      db.createUser.run({
+        id: userId,
+        username,
+        eloRating: 1200
+      });
+    } catch (e) {
+      // User might already exist
+    }
+    
+    localStorage.setItem('userId', userId);
+    localStorage.setItem('username', username);
+    setCurrentUserId(userId);
+  }, []);
+
+  const checkWinner = (boardState: (Player | null)[]): [Player | 'DRAW' | null, number[] | null] => {
     for (const combination of WINNING_COMBINATIONS) {
       const [a, b, c] = combination;
       if (boardState[a] && 
@@ -39,28 +63,90 @@ const TicTacToeBoard = () => {
   };
 
   const handleClick = (index: number) => {
-    if (board[index] || winner) return;
+    if (board[index] || winner || !currentUserId) return;
 
     const newBoard = [...board];
     newBoard[index] = currentPlayer;
     setBoard(newBoard);
 
+    if (gameId) {
+      db.recordMove.run({
+        gameId,
+        player: currentPlayer,
+        position: index
+      });
+    }
+
     const [newWinner, winCombo] = checkWinner(newBoard);
     if (newWinner) {
       setWinner(newWinner);
       setWinningCombination(winCombo);
+      
       if (newWinner !== 'DRAW') {
         setScores(prev => ({
           ...prev,
           [newWinner]: prev[newWinner as keyof typeof prev] + 1
         }));
+        
+        if (gameId) {
+          const game = db.findGame.get(gameId) as Game;
+          const playerX = db.findUser.get(game.playerX);
+          const playerO = game.playerO ? db.findUser.get(game.playerO) : null;
+          
+          if (playerX && playerO) {
+            const outcome = newWinner === 'X' ? 1 : 0;
+            const newRatingX = calculateEloRating(playerX.eloRating, playerO.eloRating, outcome);
+            const newRatingO = calculateEloRating(playerO.eloRating, playerX.eloRating, 1 - outcome);
+            
+            db.updateEloRating.run({ id: playerX.id, eloRating: newRatingX });
+            db.updateEloRating.run({ id: playerO.id, eloRating: newRatingO });
+          }
+        }
+        
         toast(`Player ${newWinner} wins!`);
       } else {
         toast("It's a draw!");
       }
+
+      if (gameId) {
+        db.updateGameState.run({
+          id: gameId,
+          board: JSON.stringify(newBoard),
+          currentTurn: currentPlayer,
+          winner: newWinner,
+          status: 'completed'
+        });
+      }
     } else {
       setCurrentPlayer(currentPlayer === 'X' ? 'O' : 'X');
+      
+      if (gameId) {
+        db.updateGameState.run({
+          id: gameId,
+          board: JSON.stringify(newBoard),
+          currentTurn: currentPlayer === 'X' ? 'O' : 'X',
+          winner: null,
+          status: 'active'
+        });
+      }
     }
+  };
+
+  const startNewGame = () => {
+    if (!currentUserId) return;
+
+    const newGameId = nanoid();
+    
+    db.createGame.run({
+      id: newGameId,
+      playerX: currentUserId,
+      status: 'waiting',
+      board: JSON.stringify(Array(9).fill(null)),
+      currentTurn: 'X'
+    });
+
+    setGameId(newGameId);
+    resetGame();
   };
 
   const resetGame = () => {
@@ -86,6 +172,11 @@ const TicTacToeBoard = () => {
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-game-purple/5 p-4">
       <div className="backdrop-blur-sm bg-white/10 p-8 rounded-2xl shadow-xl mb-8">
         <div className="text-center mb-8">
+          {gameId && (
+            <div className="text-sm text-game-gray mb-2">
+              Game ID: {gameId}
+            </div>
+          )}
           <div className="inline-block px-3 py-1 rounded-full bg-game-purple/10 text-sm font-medium mb-2">
             Current Game
           </div>
@@ -134,14 +225,16 @@ const TicTacToeBoard = () => {
         </div>
       </div>
 
-      <motion.button
-        className="px-6 py-3 bg-game-purple text-white rounded-full font-medium shadow-lg hover:shadow-xl transition-all duration-300"
-        onClick={resetGame}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-      >
-        New Game
-      </motion.button>
+      <div className="flex gap-4">
+        <motion.button
+          className="px-6 py-3 bg-game-purple text-white rounded-full font-medium shadow-lg hover:shadow-xl transition-all duration-300"
+          onClick={startNewGame}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          New Game
+        </motion.button>
+      </div>
     </div>
   );
 };
