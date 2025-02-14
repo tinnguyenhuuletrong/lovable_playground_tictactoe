@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { Circle, X } from 'lucide-react';
+import { Circle, X, ArrowLeft } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import * as db from '../utils/database';
 import { calculateEloRating } from '../utils/elo';
+import { Button } from "@/components/ui/button";
+import { useNavigate } from 'react-router-dom';
 import type { Game, Player } from '../types/game';
 
 type CellValue = Player | null;
@@ -17,6 +19,7 @@ const WINNING_COMBINATIONS = [
 ];
 
 const TicTacToeBoard = () => {
+  const navigate = useNavigate();
   const [board, setBoard] = useState<(Player | null)[]>(Array(9).fill(null));
   const [currentPlayer, setCurrentPlayer] = useState<Player>('X');
   const [winner, setWinner] = useState<Player | 'DRAW' | null>(null);
@@ -46,7 +49,26 @@ const TicTacToeBoard = () => {
     };
 
     initUser();
+
+    // Load existing game if gameId is in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const existingGameId = urlParams.get('gameId');
+    if (existingGameId) {
+      loadGame(existingGameId);
+    }
   }, []);
+
+  const loadGame = async (id: string) => {
+    const game = await db.findGame(id);
+    if (game) {
+      setGameId(id);
+      setBoard(JSON.parse(game.board));
+      setCurrentPlayer(game.currentTurn as Player);
+      if (game.winner) {
+        setWinner(game.winner as Player | 'DRAW');
+      }
+    }
+  };
 
   const checkWinner = (boardState: (Player | null)[]): [Player | 'DRAW' | null, number[] | null] => {
     for (const combination of WINNING_COMBINATIONS) {
@@ -174,12 +196,23 @@ const TicTacToeBoard = () => {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-game-purple/5 p-4">
       <div className="backdrop-blur-sm bg-white/10 p-8 rounded-2xl shadow-xl mb-8">
-        <div className="text-center mb-8">
+        <div className="flex justify-between items-center mb-6">
+          <Button 
+            variant="ghost" 
+            onClick={() => navigate('/profile')}
+            className="hover:bg-white/10"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Profile
+          </Button>
           {gameId && (
-            <div className="text-sm text-game-gray mb-2">
+            <div className="text-sm text-game-gray">
               Game ID: {gameId}
             </div>
           )}
+        </div>
+
+        <div className="text-center mb-8">
           <div className="inline-block px-3 py-1 rounded-full bg-game-purple/10 text-sm font-medium mb-2">
             Current Game
           </div>
