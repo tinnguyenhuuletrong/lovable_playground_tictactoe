@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
@@ -7,7 +8,6 @@ import * as db from '../utils/database';
 import { calculateEloRating } from '../utils/elo';
 import type { Game, Player } from '../types/game';
 
-type Player = 'X' | 'O';
 type CellValue = Player | null;
 type GameState = CellValue[];
 

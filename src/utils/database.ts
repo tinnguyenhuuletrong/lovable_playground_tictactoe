@@ -44,6 +44,10 @@ export const findUser = db.prepare(`
   SELECT * FROM users WHERE id = ?
 `);
 
+export const findGame = db.prepare(`
+  SELECT * FROM games WHERE id = ?
+`);
+
 export const updateEloRating = db.prepare(`
   UPDATE users SET eloRating = @eloRating
   WHERE id = @id
