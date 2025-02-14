@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
@@ -27,22 +26,26 @@ const TicTacToeBoard = () => {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    const userId = localStorage.getItem('userId') || nanoid();
-    const username = localStorage.getItem('username') || `Player${Math.floor(Math.random() * 1000)}`;
-    
-    try {
-      db.createUser.run({
-        id: userId,
-        username,
-        eloRating: 1200
-      });
-    } catch (e) {
-      // User might already exist
-    }
-    
-    localStorage.setItem('userId', userId);
-    localStorage.setItem('username', username);
-    setCurrentUserId(userId);
+    const initUser = async () => {
+      const userId = localStorage.getItem('userId') || nanoid();
+      const username = localStorage.getItem('username') || `Player${Math.floor(Math.random() * 1000)}`;
+      
+      try {
+        await db.createUser({
+          id: userId,
+          username,
+          eloRating: 1200
+        });
+      } catch (e) {
+        // User might already exist
+      }
+      
+      localStorage.setItem('userId', userId);
+      localStorage.setItem('username', username);
+      setCurrentUserId(userId);
+    };
+
+    initUser();
   }, []);
 
   const checkWinner = (boardState: (Player | null)[]): [Player | 'DRAW' | null, number[] | null] => {
@@ -62,7 +65,7 @@ const TicTacToeBoard = () => {
     return [null, null];
   };
 
-  const handleClick = (index: number) => {
+  const handleClick = async (index: number) => {
     if (board[index] || winner || !currentUserId) return;
 
     const newBoard = [...board];
@@ -70,7 +73,7 @@ const TicTacToeBoard = () => {
     setBoard(newBoard);
 
     if (gameId) {
-      db.recordMove.run({
+      await db.recordMove({
         gameId,
         player: currentPlayer,
         position: index
@@ -89,17 +92,17 @@ const TicTacToeBoard = () => {
         }));
         
         if (gameId) {
-          const game = db.findGame.get(gameId) as Game;
-          const playerX = db.findUser.get(game.playerX);
-          const playerO = game.playerO ? db.findUser.get(game.playerO) : null;
+          const game = await db.findGame(gameId) as unknown as Game;
+          const playerX = await db.findUser(game.playerX);
+          const playerO = game.playerO ? await db.findUser(game.playerO) : null;
           
           if (playerX && playerO) {
             const outcome = newWinner === 'X' ? 1 : 0;
             const newRatingX = calculateEloRating(playerX.eloRating, playerO.eloRating, outcome);
             const newRatingO = calculateEloRating(playerO.eloRating, playerX.eloRating, 1 - outcome);
             
-            db.updateEloRating.run({ id: playerX.id, eloRating: newRatingX });
-            db.updateEloRating.run({ id: playerO.id, eloRating: newRatingO });
+            await db.updateEloRating({ id: playerX.id, eloRating: newRatingX });
+            await db.updateEloRating({ id: playerO.id, eloRating: newRatingO });
           }
         }
         
@@ -109,7 +112,7 @@ const TicTacToeBoard = () => {
       }
 
       if (gameId) {
-        db.updateGameState.run({
+        await db.updateGameState({
           id: gameId,
           board: JSON.stringify(newBoard),
           currentTurn: currentPlayer,
@@ -121,7 +124,7 @@ const TicTacToeBoard = () => {
       setCurrentPlayer(currentPlayer === 'X' ? 'O' : 'X');
       
       if (gameId) {
-        db.updateGameState.run({
+        await db.updateGameState({
           id: gameId,
           board: JSON.stringify(newBoard),
           currentTurn: currentPlayer === 'X' ? 'O' : 'X',
@@ -132,12 +135,12 @@ const TicTacToeBoard = () => {
     }
   };
 
-  const startNewGame = () => {
+  const startNewGame = async () => {
     if (!currentUserId) return;
 
     const newGameId = nanoid();
     
-    db.createGame.run({
+    await db.createGame({
       id: newGameId,
       playerX: currentUserId,
       status: 'waiting',
